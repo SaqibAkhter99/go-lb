@@ -46,6 +46,7 @@ func handleConnection(conn net.Conn) {
 		fmt.Fprintf(os.Stderr, "Error reading request: %v\n", err)
 		return
 	}
+
 	fmt.Printf("%s %s %s\n", request.Method, request.URL, request.Proto)
 
 	// Forward the request to the backend server
@@ -54,8 +55,19 @@ func handleConnection(conn net.Conn) {
 	request.URL.Host = backendAddr
 	request.URL.Scheme = "http"
 	request.Host = backendAddr
+	request.Method = "GET"
+	request.UserAgent()
+	request.Host = "localHost"
+	request.Header.Set("Accept", "*/*")
+	request.Referer()
+	fmt.Printf("Host: %s\n", request.Host)
+	fmt.Printf("User-Agent: %s\n", request.UserAgent())
+	fmt.Printf("Accept %s\n", request.Header.Get("Accept"))
 
+	// forwarding request to backend server
 	resp, err := client.Do(request)
+	// Response Code
+	fmt.Printf("Response from server: %s\n", resp.Status)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error forwarding request: %v\n", err)
 		return
