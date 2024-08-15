@@ -52,7 +52,7 @@ func backed__healthCheck__handler(w http.ResponseWriter, r *http.Request) {
 	response := HealthCheckResponse{
 		Status:        "Healthy",
 		TotalDuration: formattedDuration,
-		Message:       "You are connected to Server 2",
+		Message:       "Server 2 is runnimg",
 	}
 
 	// Convert the response to JSON

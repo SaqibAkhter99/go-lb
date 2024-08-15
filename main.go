@@ -7,19 +7,27 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"reflect"
 )
 
 var listenAddr = ":80"
 
 type bckAddrs struct {
-	backendAddr  string
-	backendAddr2 string
+	backendAddr string
+	value       string
 }
 
 func main() {
-	var address bckAddrs
-	address.backendAddr = "localhost:8080"
-	address.backendAddr2 = "localhost:8081"
+	address := []bckAddrs{
+		{"backendAddr", "localhost:8080"},
+		{"backendAddr2", "localhost:8081"},
+	}
+	// Get the type of the struct
+	t := reflect.TypeOf(address)
+	elemType := t.Elem()
+	servCount := elemType.NumField()
+	// Get the number of fields in the struct
+
 	requestChannel := make(chan *http.Request)
 
 	ln, err := net.Listen("tcp", listenAddr)
@@ -32,7 +40,7 @@ func main() {
 	fmt.Printf("Load balancer started, listening on %s\n", listenAddr)
 
 	// Start a goroutine to forward requests to the backend
-	go forwardToBackend(requestChannel, address)
+	go forwardToBackend(requestChannel, address, servCount)
 
 	for {
 		conn, err := ln.Accept()
@@ -65,11 +73,27 @@ func handleConnection(conn net.Conn, requestChannel chan *http.Request) {
 	requestChannel <- request
 }
 
-func forwardToBackend(requestChannel chan *http.Request, address bckAddrs) {
+func roundRobbin(requestChannel chan *http.Request, address []bckAddrs, currPos int64, servCount int64) string {
+	var roundRobbin []string
+	for _, val := range address {
+		roundRobbin = append(roundRobbin, val.value)
+	}
+	fmt.Println(roundRobbin[currPos])
+	return roundRobbin[currPos]
+}
+
+func forwardToBackend(requestChannel chan *http.Request, address []bckAddrs, servCount int) {
+	var currPos int64
 	client := &http.Client{}
 	for request := range requestChannel {
+		currServer := roundRobbin(requestChannel, address, currPos, int64(servCount))
+		currPos += 1
+		if currPos >= int64(servCount) {
+			currPos = 0
+		}
+		fmt.Println(currPos)
 		// Forward the request to the backend server
-		backend := address.backendAddr
+		backend := currServer
 		request.RequestURI = ""
 		request.URL.Host = backend
 		request.URL.Scheme = "http"
@@ -93,12 +117,6 @@ func forwardToBackend(requestChannel chan *http.Request, address bckAddrs) {
 			fmt.Fprintf(os.Stderr, "Error reading response body: %v\n", err)
 			continue
 		}
-
-		// Write the response back to the original client connection
-		// Assuming conn is passed to this function (needs modification to the handleConnection)
-		// conn.Write([]byte(resp.Status + "\n"))
-		// conn.Write(body)
-
 		// For simplicity, printing out the response
 		fmt.Printf("Response Body: %s\n", body)
 		fmt.Printf("Response from server: %s\n", resp.Status)
