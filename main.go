@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"reflect"
 )
 
 var listenAddr = ":80"
@@ -22,12 +21,7 @@ func main() {
 		{"backendAddr", "localhost:8080"},
 		{"backendAddr2", "localhost:8081"},
 	}
-	// Get the type of the struct
-	t := reflect.TypeOf(address)
-	elemType := t.Elem()
-	servCount := elemType.NumField()
-	// Get the number of fields in the struct
-
+	servCount := len(address)
 	requestChannel := make(chan *http.Request)
 
 	ln, err := net.Listen("tcp", listenAddr)
@@ -73,38 +67,30 @@ func handleConnection(conn net.Conn, requestChannel chan *http.Request) {
 	requestChannel <- request
 }
 
-func roundRobbin(requestChannel chan *http.Request, address []bckAddrs, currPos int64, servCount int64) string {
-	var roundRobbin []string
-	for _, val := range address {
-		roundRobbin = append(roundRobbin, val.value)
-	}
-	fmt.Println(roundRobbin[currPos])
-	return roundRobbin[currPos]
+func roundRobbin(address []bckAddrs, currPos int) string {
+	return address[currPos].value
 }
 
 func forwardToBackend(requestChannel chan *http.Request, address []bckAddrs, servCount int) {
-	var currPos int64
+	var currPos int
 	client := &http.Client{}
 	for request := range requestChannel {
-		currServer := roundRobbin(requestChannel, address, currPos, int64(servCount))
-		currPos += 1
-		if currPos >= int64(servCount) {
-			currPos = 0
-		}
-		fmt.Println(currPos)
-		// Forward the request to the backend server
-		backend := currServer
-		request.RequestURI = ""
-		request.URL.Host = backend
-		request.URL.Scheme = "http"
-		request.Host = backend
+		currServer := roundRobbin(address, currPos)
+		currPos = (currPos + 1) % servCount
 
-		fmt.Printf("Host: %s\n", request.Host)
-		fmt.Printf("User-Agent: %s\n", request.UserAgent())
-		fmt.Printf("Accept: %s\n", request.Header.Get("Accept"))
+		// Create a new request to avoid reusing the original one
+		newReq, err := http.NewRequest(request.Method, request.URL.String(), request.Body)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating new request: %v\n", err)
+			continue
+		}
+		newReq.Header = request.Header
+		newReq.URL.Host = currServer
+		newReq.URL.Scheme = "http"
+		newReq.Host = currServer
 
 		// Forwarding request to backend server
-		resp, err := client.Do(request)
+		resp, err := client.Do(newReq)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error forwarding request: %v\n", err)
 			continue
