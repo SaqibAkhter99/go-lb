@@ -148,7 +148,6 @@ func forwardToBackend(requestChannel chan *ClientRequest, address []bckAddrs, se
 
 		// Create a new request for the backend server
 		newReq, err := http.NewRequest(request.Method, "http://"+currServer+request.URL.Path, requestBody)
-		fmt.Println("http://" + currServer + request.URL.Path)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating new request: %v\n", err)
 			http.Error(respWriter, "Error creating new request", http.StatusInternalServerError)

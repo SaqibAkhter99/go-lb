@@ -36,10 +36,8 @@ func main() {
 }
 
 func backed__healthCheck__handler(w http.ResponseWriter, r *http.Request) {
+	// start timer
 	start := time.Now()
-
-	// Process the request
-	// (Simulate some processing here if needed)
 
 	// End timing
 	elapsed := time.Since(start)
