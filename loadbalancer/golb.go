@@ -19,13 +19,18 @@ type bckAddrs struct {
 	healthy     bool
 }
 
+type ClientRequest struct {
+	RespWriter *CustomResponseWriter
+	Req        *http.Request
+}
+
 func main() {
 	address := []bckAddrs{
 		{"backendAddr", "localhost:8080", true},
 		{"backendAddr2", "localhost:8081", true},
 	}
 	servCount := len(address)
-	requestChannel := make(chan *http.Request)
+	requestChannel := make(chan *ClientRequest)
 	go monitorServers(address) // Monitor servers in the background
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
@@ -50,9 +55,7 @@ func main() {
 	}
 }
 
-func handleConnection(conn net.Conn, requestChannel chan *http.Request) {
-	defer conn.Close()
-
+func handleConnection(conn net.Conn, requestChannel chan *ClientRequest) {
 	// Log incoming connection
 	remoteAddr := conn.RemoteAddr().String()
 	fmt.Printf("Received request from %s\n", remoteAddr)
@@ -61,13 +64,24 @@ func handleConnection(conn net.Conn, requestChannel chan *http.Request) {
 	request, err := http.ReadRequest(bufio.NewReader(conn))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading request: %v\n", err)
+		conn.Close()
 		return
 	}
 
 	fmt.Printf("%s %s %s\n", request.Method, request.URL, request.Proto)
 
+	// Create a custom response writer and send it along with the request
+	respWriter := NewCustomResponseWriter(conn)
+
 	// Send the request to the request channel
-	requestChannel <- request
+	requestChannel <- &ClientRequest{
+		RespWriter: respWriter,
+		Req:        request,
+	}
+
+	// Wait for the response to be fully written
+	<-respWriter.finished
+	conn.Close() // Close the connection after the response is sent
 }
 
 func monitorServers(address []bckAddrs) {
@@ -80,7 +94,6 @@ func monitorServers(address []bckAddrs) {
 				fmt.Fprintf(os.Stderr, "Backend Server %d (%s) is down: %v\n", i, address[i].value, err)
 			} else {
 				address[i].healthy = true
-				//fmt.Printf("Backend Server %d (%s) is healthy\n", i, address[i].value)
 			}
 		}
 		time.Sleep(10 * time.Second) // Check health every 10 seconds
@@ -99,17 +112,22 @@ func roundRobbin(address []bckAddrs, currPos int) (string, int, bool) {
 	return "", currPos, false
 }
 
-func forwardToBackend(requestChannel chan *http.Request, address []bckAddrs, servCount int) {
+func forwardToBackend(requestChannel chan *ClientRequest, address []bckAddrs, servCount int) {
 	var currPos int
 	client := &http.Client{}
 
-	for request := range requestChannel {
+	for clientReq := range requestChannel {
+		request := clientReq.Req
+		respWriter := clientReq.RespWriter
+
 		currServer, newPos, found := roundRobbin(address, currPos)
 		currPos = newPos
 
 		if !found {
 			// No healthy server available
 			fmt.Fprintf(os.Stderr, "No healthy backend servers available\n")
+			http.Error(respWriter, "No healthy backend servers available", http.StatusServiceUnavailable)
+			respWriter.Finish()
 			continue
 		}
 
@@ -119,6 +137,8 @@ func forwardToBackend(requestChannel chan *http.Request, address []bckAddrs, ser
 			buf, err := io.ReadAll(request.Body)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error reading request body: %v\n", err)
+				http.Error(respWriter, "Error reading request body", http.StatusInternalServerError)
+				respWriter.Finish()
 				continue
 			}
 			requestBody = io.NopCloser(bytes.NewBuffer(buf))
@@ -128,8 +148,11 @@ func forwardToBackend(requestChannel chan *http.Request, address []bckAddrs, ser
 
 		// Create a new request for the backend server
 		newReq, err := http.NewRequest(request.Method, "http://"+currServer+request.URL.Path, requestBody)
+		fmt.Println("http://" + currServer + request.URL.Path)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating new request: %v\n", err)
+			http.Error(respWriter, "Error creating new request", http.StatusInternalServerError)
+			respWriter.Finish()
 			continue
 		}
 		newReq.Header = request.Header
@@ -140,18 +163,75 @@ func forwardToBackend(requestChannel chan *http.Request, address []bckAddrs, ser
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error forwarding request to backend server %s: %v\n", currServer, err)
 			address[currPos].healthy = false // Mark server as unhealthy
+			http.Error(respWriter, "Error forwarding request to backend server", http.StatusBadGateway)
+			respWriter.Finish()
 			continue
 		}
 		defer resp.Body.Close()
 
-		// Log the response
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading response body: %v\n", err)
-			continue
+		// Copy the response headers
+		for key, values := range resp.Header {
+			for _, value := range values {
+				respWriter.Header().Add(key, value)
+			}
 		}
-		// For simplicity, printing out the response
-		fmt.Printf("Response Body: %s\n", body)
+
+		// Write the status code to the response writer
+		respWriter.WriteHeader(resp.StatusCode)
+
+		// Copy the response body to the response writer
+		if _, err := io.Copy(respWriter, resp.Body); err != nil {
+			fmt.Fprintf(os.Stderr, "Error copying response body to client: %v\n", err)
+			http.Error(respWriter, "Error copying response body", http.StatusInternalServerError)
+		}
+
 		fmt.Printf("Response from server: %s\n", resp.Status)
+		respWriter.Finish() // Indicate that the response has been fully written
 	}
+}
+
+type CustomResponseWriter struct {
+	conn     net.Conn
+	header   http.Header
+	status   int
+	finished chan struct{} // To signal when writing is complete
+}
+
+func NewCustomResponseWriter(conn net.Conn) *CustomResponseWriter {
+	return &CustomResponseWriter{
+		conn:     conn,
+		header:   make(http.Header),
+		status:   http.StatusOK,
+		finished: make(chan struct{}),
+	}
+}
+
+func (w *CustomResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *CustomResponseWriter) Write(data []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.conn.Write(data)
+}
+
+func (w *CustomResponseWriter) WriteHeader(statusCode int) {
+	w.status = statusCode
+	statusLine := fmt.Sprintf("HTTP/1.1 %d %s\r\n", statusCode, http.StatusText(statusCode))
+	w.conn.Write([]byte(statusLine))
+
+	for k, v := range w.header {
+		for _, vv := range v {
+			headerLine := fmt.Sprintf("%s: %s\r\n", k, vv)
+			w.conn.Write([]byte(headerLine))
+		}
+	}
+
+	w.conn.Write([]byte("\r\n")) // End of headers
+}
+
+func (w *CustomResponseWriter) Finish() {
+	close(w.finished)
 }

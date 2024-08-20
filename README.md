@@ -11,16 +11,13 @@ The project consists of the following components:
 
 ### Folder Structure
 .
-├── load-balancer/
-│ ├── main.go # Load balancer implementation
-│ └── README.md # Project documentation
-├── backend1/
-│ ├── main.go # Backend server 1 implementation
-│ └── index.html # HTML page for server 1
-├── backend2/
-│ ├── main.go # Backend server 2 implementation
-│ └── index.html # HTML page for server 2
-└── README.md # This file
+    ├── load-balancer/
+    │ ├── main.go # Load balancer implementation
+    ├── backend1/
+    │ ├── main.go # Backend server 1 implementation
+    ├── backend2/
+    │ ├── main.go # Backend server 2 implementation
+    └── README.md # This file
 
 
 ## Getting Started
