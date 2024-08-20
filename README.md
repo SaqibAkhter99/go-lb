@@ -10,7 +10,7 @@ The project consists of the following components:
 - **Backend Servers**: Two backend servers, each running in a separate folder, which respond to requests and provide basic health check endpoints.
 
 ### Folder Structure
-.
+
     ├── load-balancer/
     │ ├── main.go # Load balancer implementation
     ├── backend1/
@@ -35,7 +35,7 @@ The project consists of the following components:
     ```
 2. Start the first backend server:
     ```bash
-    go run main.go
+    go run backend.go
     ```
 3. Navigate to the `backend2/` folder:
     ```bash
@@ -43,18 +43,18 @@ The project consists of the following components:
     ```
 4. Start the second backend server:
     ```bash
-    go run main.go
+    go run backend.go
     ```
 
 ### Running the Load Balancer
 
-1. Navigate to the `load-balancer/` folder:
+1. Navigate to the `loadbalancer/` folder:
     ```bash
-    cd ../load-balancer/
+    cd ../loadbalancer/
     ```
 2. Start the load balancer:
     ```bash
-    go run main.go
+    go run golb.go
     ```
 3. The load balancer will start listening on port 80. You can send requests to it using `curl` or a web browser:
     ```bash
