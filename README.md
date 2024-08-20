@@ -14,9 +14,9 @@ The project consists of the following components:
     ├── load-balancer/
     │ ├── main.go # Load balancer implementation
     ├── backend1/
-    │ ├── main.go # Backend server 1 implementation
+    │ ├── backend.go # Backend server 1 implementation
     ├── backend2/
-    │ ├── main.go # Backend server 2 implementation
+    │ ├── backend.go # Backend server 2 implementation
     └── README.md # This file
 
 
